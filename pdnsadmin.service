@@ -1,0 +1,10 @@
+[Unit]
+Description=uWSGI instance for PowerDNS Admin
+After=syslog.target network.target remote-fs.target nss-lookup.target pdns.service
+
+[Service]
+# Update path to point to installation location
+ExecStart=/bin/bash -c 'cd /opt/web/pdnsadmin; /usr/local/bin/uwsgi pdnsadmin.ini'
+
+[Install]
+WantedBy=multi-user.target

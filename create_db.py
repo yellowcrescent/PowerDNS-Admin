@@ -5,6 +5,7 @@ from config import SQLALCHEMY_DATABASE_URI
 from config import SQLALCHEMY_MIGRATE_REPO
 from app import db
 from app.models import Role, Setting
+#import MySQLdb
 import os.path
 import time
 import sys
@@ -28,7 +29,8 @@ def connect_db(wait_time):
         try:
             db.create_all()
             return True
-        except:
+        except Exception as e:
+            print("Exception thrown: ", e)
             time.sleep(1)
 
     return False

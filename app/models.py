@@ -10,6 +10,7 @@ import pyotp
 import re
 import dns.reversename
 
+import arrow
 from datetime import datetime
 from distutils.util import strtobool
 from distutils.version import StrictVersion
@@ -984,6 +985,39 @@ class Record(object):
 
             records.append(record)
 
+        # Increment SOA serial
+        headers = {'X-API-Key': PDNS_API_KEY}
+        soaj = utils.fetch_json(urlparse.urljoin(PDNS_STATS_URL, API_EXTENDED_URL + '/servers/localhost/zones/%s' % domain), headers=headers, method='GET')
+        domain_dot = domain + '.'
+        logging.info("results for '%s' query: %s", domain, str(soaj))
+        srez = filter(lambda x: x['name'] == domain_dot and x['type'] == 'SOA', soaj['rrsets'])
+        if len(srez) > 0:
+            rr = map(lambda x: x['content'], srez[0]['records'])
+            soaline = rr[0].split()
+            curser = soaline[2]
+
+            nowdate = arrow.utcnow().format('YYYYMMDD') + '01'
+            if int(nowdate) > int(curser):
+                newser = nowdate
+            else:
+                newser = str(int(curser) + 1)
+
+            soaline[2] = newser
+            new_soa = ' '.join(soaline)
+
+            new_srr = {
+                'changetype': 'REPLACE',
+                'ttl': 3600,
+                'name': domain_dot,
+                'records': [ { 'content': new_soa, 'disabled': False } ],
+                'type': "SOA"
+            }
+            records.append(new_srr)
+            logging.info("%s new SOA serial --> %s", domain_dot, newser)
+        else:
+            logging.error("Failed to retrieve SOA record for domain")
+
+
         # Adjustment to add multiple records which described in https://github.com/ngoduykhanh/PowerDNS-Admin/issues/5#issuecomment-181637576
         final_records = []
         records = sorted(records, key = lambda item: (item["name"], item["type"], item["changetype"]))
@@ -1045,6 +1079,19 @@ class Record(object):
             headers['X-API-Key'] = PDNS_API_KEY
             jdata1 = utils.fetch_json(urlparse.urljoin(PDNS_STATS_URL, API_EXTENDED_URL + '/servers/localhost/zones/%s' % domain), headers=headers, method='PATCH', data=postdata_for_delete)
             jdata2 = utils.fetch_json(urlparse.urljoin(PDNS_STATS_URL, API_EXTENDED_URL + '/servers/localhost/zones/%s' % domain), headers=headers, method='PATCH', data=postdata_for_new)
+            jdata3 = utils.fetch_json(urlparse.urljoin(PDNS_STATS_URL, API_EXTENDED_URL + '/servers/localhost/zones/%s/notify' % domain), headers=headers, method='PUT')
+
+            logging.debug("NOTIFY data (jdata3):", jdata3)
+            if 'result' in jdata3:
+                if 'queued' in jdata3['result']:
+                    notify_ok = True
+                    logging.info('NOTIFY queued successfully for zone update on slave')
+                else:
+                    notify_ok = False
+                    logging.error('NOTIFY failed for zone (not queued)')
+            else:
+                notify_ok = False
+                logging.error('NOTIFY failed for zone (no result)')
 
             if 'error' in jdata2.keys():
                 logging.error('Cannot apply record changes.')
